@@ -35,9 +35,6 @@ class TCPConnectionClient internal constructor(
         return receiver.await()
     }
 
-    /** Receive `n` messages, returning them in a list. */
-    fun receive(n: Int) = (1 .. n).map { receive() }
-
     /** Register a function `fn` to be called whenever a message is received.
      *  Note that messages may be caught by `receive()` and therefore not be
      *  handled by this function. */
