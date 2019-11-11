@@ -4,45 +4,58 @@ import java.net.Socket
 import java.net.SocketException
 import java.util.concurrent.CyclicBarrier
 
+/** A connection used for sending messages to another remote client. */
 class TCPConnectionClient internal constructor(
         private val socket: Socket,
         private val outgoing: Boolean
 ) {
+    /** Send a string message, expecting no response. */
     fun send(data: String)
             = sendWithID(data, MessageID(messageID++, outgoing))
 
+    /** Send a string message, with responses handled by `fn` */
     fun request(data: String, fn: (TCPMessage) -> Unit)
             = requestWithID(data, MessageID(messageID++, outgoing), fn)
 
+    /** Send a string message, returning the first response message. */
     fun request(data: String)
             = requestWithID(data, MessageID(messageID++, outgoing))
 
+    /** Receive a single message, calling `fn` upon receipt. */
     fun receive(fn: (TCPMessage) -> Unit) {
         synchronized(receiveQueue) {
             receiveQueue.add(fn)
         }
     }
 
+    /** Wait for a message to be received and return it. */
     fun receive(): TCPMessage {
         val receiver = ReceiveCallback()
         receive(receiver.callback)
         return receiver.await()
     }
 
+    /** Receive `n` messages, returning them in a list. */
     fun receive(n: Int) = (1 .. n).map { receive() }
 
+    /** Register a function `fn` to be called whenever a message is received.
+     *  Note that messages may be caught by `receive()` and therefore not be
+     *  handled by this function. */
     fun received(fn: (TCPMessage) -> Unit) {
         synchronized(received) {
             received.add(fn)
         }
     }
 
+    /** Register a function `fn` to be called whenever the connection drops.
+     *  Note that this includes when disconnect() is called. */
     fun disconnected(fn: () -> Unit) {
         synchronized(disconnected) {
             disconnected.add(fn)
         }
     }
 
+    /** Disconnect. */
     fun disconnect() {
         synchronized(this) {
             if (!socket.isClosed) socket.close()
@@ -50,6 +63,19 @@ class TCPConnectionClient internal constructor(
             connected = false
         }
     }
+
+    ////////////////////////////////////////////////////////////////////////////
+
+    companion object {
+        /** Connect to a remote server. */
+        fun connect(host: String, port: Int): TCPConnectionClient {
+            val socket = Socket(InetAddress.getByName(host), port)
+            Thread.sleep(100)
+            return TCPConnectionClient(socket, true)
+        }
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
 
     private var connected = true
     private var messageID = 0
@@ -59,6 +85,8 @@ class TCPConnectionClient internal constructor(
     private val received: MutableList<(TCPMessage) -> Unit> = mutableListOf()
     private val ostr = socket.getOutputStream()
     private val istr = socket.getInputStream()
+
+    ////////////////////////////////////////////////////////////////////////////
 
     init {
         Thread {
@@ -75,10 +103,16 @@ class TCPConnectionClient internal constructor(
         } .start()
     }
 
+    ////////////////////////////////////////////////////////////////////////////
+
     internal fun sendWithID(data: String, id: MessageID) {
         synchronized(this) {
             val bytes = encodePacket(data, id)
-            ostr.write(bytes)
+
+            try {
+                ostr.write(bytes)
+            }
+            catch (e: SocketException) { /* Do nothing, disconnect handled in receive loop. */ }
         }
     }
 
@@ -89,7 +123,7 @@ class TCPConnectionClient internal constructor(
 
     internal fun requestWithID(data: String, id: MessageID): TCPMessage {
         val receiver = ReceiveCallback()
-        request(data, receiver.callback)
+        requestWithID(data, id, receiver.callback)
         return receiver.await()
     }
 
@@ -104,14 +138,6 @@ class TCPConnectionClient internal constructor(
         }
 
         fn(message)
-    }
-
-    companion object {
-        fun connect(host: String, port: Int): TCPConnectionClient {
-            val socket = Socket(InetAddress.getByName(host), port)
-            Thread.sleep(100)
-            return TCPConnectionClient(socket, true)
-        }
     }
 }
 
