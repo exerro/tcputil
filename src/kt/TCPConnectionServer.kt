@@ -48,9 +48,8 @@ class TCPConnectionServer(port: Int) {
                     val socket = server.accept()
                     val fn = synchronized(awaiting) {
                         awaiting.firstOrNull()?.also { awaiting.removeAt(0) } ?:
-                        { client -> synchronized(connected) {
-                            connected.forEach { it(client) }
-                        } }
+                        { client -> synchronized(connected) { connected.toList() }
+                                .forEach { it(client) } }
                     }
 
                     fn(TCPConnectionClient(socket, false))
